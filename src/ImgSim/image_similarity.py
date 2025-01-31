@@ -165,14 +165,25 @@ class Img2Vec:
         img_trans = img_trans.unsqueeze(0)
 
         return self.embed(img_trans)
+    
+    def reset_dataset(self):
+        # empty the dataset
+        self.files = []
+        self.dataset = {}
+        return
+    
+    def embed_file(self, file):
+        # embed a single file
+        vector = self.embed_image(file)
+        self.dataset[str(file)] = vector
+        return
 
     def embed_dataset(self, source):
         # convert source to appropriate format
         self.files = self.validate_source(source)
 
         for file in self.files:
-            vector = self.embed_image(file)
-            self.dataset[str(file)] = vector
+            self.embed_file(file)
 
         return
 
