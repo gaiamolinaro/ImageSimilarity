@@ -52,6 +52,7 @@ class Img2Vec:
         # dictionary defining the supported NN architectures
         self.embed_dict = {
             "resnet50": self.obtain_children,
+            "resnet18": self.obtain_children,
             "vgg19": self.obtain_classifier,
             "efficientnet_b0": self.obtain_classifier,
         }
@@ -76,6 +77,7 @@ class Img2Vec:
     def assign_transform(self, weights):
         weights_dict = {
             "resnet50": models.ResNet50_Weights,
+            "resnet18": models.ResNet50_Weights,
             "vgg19": models.VGG19_Weights,
             "efficientnet_b0": models.EfficientNet_B0_Weights,
         }
