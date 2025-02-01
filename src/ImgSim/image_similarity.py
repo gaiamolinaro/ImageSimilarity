@@ -156,6 +156,8 @@ class Img2Vec:
     def embed_image(self, img):
         # load and preprocess image
         img = Image.open(img)
+        if img.mode=="RGBA":  # convert png images
+            img = img.convert("RGB")
         img_trans = self.transform(img)
 
         # store computational graph on GPU if available
@@ -172,22 +174,25 @@ class Img2Vec:
         self.dataset = {}
         return
     
-    def embed_file(self, file):
+    def embed_file(self, file, comparison_dataset=None):
         # embed a single file
         vector = self.embed_image(file)
-        self.dataset[str(file)] = vector
+        if comparison_dataset is None:
+            self.dataset[str(file)] = vector
+        else:
+            comparison_dataset[str(file)] = vector
         return
 
-    def embed_dataset(self, source):
+    def embed_dataset(self, source, comparison_dataset=None):
         # convert source to appropriate format
         self.files = self.validate_source(source)
 
         for file in self.files:
-            self.embed_file(file)
+            self.embed_file(file, comparison_dataset)
 
         return
 
-    def similar_images(self, target_file, n=None):
+    def similar_images(self, target_file, n=None, comparison_dataset=None, show_images=True):
         """
         Function for comparing target image to embedded image dataset
 
@@ -200,12 +205,15 @@ class Img2Vec:
 
         target_vector = self.embed_image(target_file)
 
-        # initiate computation of consine similarity
+        if comparison_dataset is None:
+            comparison_dataset = self.dataset
+
+        # initiate computation of cosine similarity
         cosine = nn.CosineSimilarity(dim=1)
 
         # iteratively store similarity of stored images to target image
         sim_dict = {}
-        for k, v in self.dataset.items():
+        for k, v in comparison_dataset.items():
             sim = cosine(v, target_vector)[0].item()
             sim_dict[k] = sim
 
@@ -217,9 +225,11 @@ class Img2Vec:
         if n is not None:
             sim_dict = dict(list(sim_dict.items())[: int(n)])
 
-        self.output_images(sim_dict, target_file)
+        if show_images:
+            self.output_images(sim_dict, target_file)
 
         return sim_dict
+    
 
     def output_images(self, similar, target):
         self.display_img(target, "original")
