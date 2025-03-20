@@ -435,6 +435,7 @@ class Img2Vec:
 
         n = len(image_files)
         max_similarity_matrix = np.zeros((n, n))
+        max_similarity_layer_matrix = np.empty((n,n), dtype=str)
         image_index = {image_files[i]: i for i in range(n)}
 
         # Initialize cosine similarity
@@ -451,12 +452,18 @@ class Img2Vec:
 
                     # Compute cosine similarity for this layer
                     sim = cosine(flat_emb1, flat_emb2).item()
-                    max_similarity = max(max_similarity, sim)  # Update max similarity
 
-                max_similarity_matrix[i, j] = min(max_similarity, 1.0)
-                max_similarity_matrix[j, i] = min(max_similarity, 1.0)  # Ensure symmetry
+                    # Store layer name if this layer has the highest similarity
+                    if sim > max_similarity:
+                        max_similarity_layer = ln
+                        max_similarity = min(sim, 1.0)
 
-        return max_similarity_matrix, image_index
+                max_similarity_matrix[i, j] = max_similarity
+                max_similarity_matrix[j, i] = max_similarity  # Ensure symmetry
+                max_similarity_layer_matrix[i, j] = max_similarity_layer
+                max_similarity_layer_matrix[j, i] = max_similarity_layer
+
+        return max_similarity_matrix, image_index, max_similarity_layer_matrix
 
 
     def output_images(self, similar, target):
