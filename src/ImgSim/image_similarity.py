@@ -410,9 +410,55 @@ class Img2Vec:
         return similarity_matrix, image_index
     
 
+    def compute_max_similarity_matrix_all_layers(self, image_files, names=None):
+        """
+        Computes the similarity matrix with the maximum similarity across all layers.
+
+        Parameters:
+        -----------
+        image_files: list of str
+            Paths to the image files to embed.
+        names: list of str, optional
+            Names of the layers for which to return embeddings.
+
+        Returns:
+        --------
+        max_similarity_matrix: np.ndarray
+            A matrix where entry (i, j) is the maximum similarity across layers
+            between image i and image j.
+        image_index: dict
+            A dictionary mapping image file paths to matrix indices.
+        """
+        # Embed images into all layers
+        embeddings = {img_file: self.embed_image_all_layers(img_file, names=names) for img_file in image_files}
+        layer_names = list(next(iter(embeddings.values())).keys())  # Extract layer names
+
+        n = len(image_files)
+        max_similarity_matrix = np.zeros((n, n))
+        image_index = {image_files[i]: i for i in range(n)}
+
+        # Initialize cosine similarity
+        cosine = nn.CosineSimilarity(dim=0)
+
+        # Compute maximum similarity across all layers
+        for i in range(n):
+            for j in range(i, n):
+                max_similarity = -float("inf")  # Start with the lowest possible similarity
+                for ln in layer_names:
+                    # Flatten embeddings for layer ln
+                    flat_emb1 = embeddings[image_files[i]][ln].view(-1)
+                    flat_emb2 = embeddings[image_files[j]][ln].view(-1)
+
+                    # Compute cosine similarity for this layer
+                    sim = cosine(flat_emb1, flat_emb2).item()
+                    max_similarity = max(max_similarity, sim)  # Update max similarity
+
+                max_similarity_matrix[i, j] = max_similarity
+                max_similarity_matrix[j, i] = max_similarity  # Ensure symmetry
+
+        return max_similarity_matrix, image_index
 
 
-    
     def output_images(self, similar, target):
         self.display_img(target, "original")
 
