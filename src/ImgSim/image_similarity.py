@@ -192,13 +192,16 @@ class Img2Vec:
 
         return
     
-    def embed_image_all_layers(self, img):
+
+    def embed_image_all_layers(self, img, names=None):
         """
         Embeds an image and returns embeddings from all layers of the model.
 
         Parameters:
         -----------
         img: str or Path object specifying the image file to embed.
+        names: list of str, optional
+            Names of the layers for which to return embeddings.
 
         Returns:
         --------
@@ -228,8 +231,13 @@ class Img2Vec:
         # Temporarily register hooks and run forward pass
         hooks = []
         try:
-            for name, layer in self.model.named_modules():
-                hooks.append(layer.register_forward_hook(hook_fn(name)))
+            if names is None:
+                for name, layer in self.model.named_modules():
+                    hooks.append(layer.register_forward_hook(hook_fn(name)))
+            else:
+                for name in names:
+                    layer = dict(self.model.named_modules())[name]
+                    hooks.append(layer.register_forward_hook(hook_fn(name)))
 
             # Perform a forward pass through the model
             with torch.no_grad():
@@ -328,20 +336,83 @@ class Img2Vec:
         return sim
     
 
+    def preload_embeddings(self, image_files):
+        """
+        Preloads all embeddings for the given list of image files.
+
+        Parameters:
+        -----------
+        image_files: list of str
+            Paths to the image files to embed.
+
+        Returns:
+        --------
+        embeddings: dict
+            A dictionary where keys are image file paths, and values are their embeddings.
+        """
+        embeddings = {}
+        for img_file in image_files:
+            embeddings[img_file] = self.embed_image(img_file)
+        return embeddings
+    
+
+    def preload_embeddings_all_layers(self, image_files):
+        """
+        Preloads all embeddings for the given list of image files.
+
+        Parameters:
+        -----------
+        image_files: list of str
+            Paths to the image files to embed.
+
+        Returns:
+        --------
+        embeddings: dict
+            A dictionary where keys are image file paths, and values are their embeddings.
+        """
+        embeddings = {}
+        for img_file in image_files:
+            embeddings[img_file] = self.embed_image_all_layers(img_file)
+        return embeddings
+
+
     def compute_similarity_matrix(self, image_files):
+        """
+        Computes the similarity matrix.
+
+        Parameters:
+        -----------
+        image_files: list of str
+            Paths to the image files to embed.
+
+        Returns:
+        --------
+        similarity_matrix: np.ndarray
+            A matrix where entry (i, j) is the similarity between image i and image j.
+        image_index: dict
+            A dictionary mapping image file paths to matrix indices.
+        """
+        embeddings = self.preload_embeddings(image_files)
         n = len(image_files)
         similarity_matrix = np.zeros((n, n))
         image_index = {image_files[i]: i for i in range(n)}
-        
+
+        # Initialize cosine similarity
+        cosine = nn.CosineSimilarity(dim=1)
+
+        # Compute similarities
         for i in range(n):
             for j in range(i, n):
-                similarity = self.compare_two_images(image_files[i], image_files[j])
-                similarity_matrix[i, j] = similarity
-                similarity_matrix[j, i] = similarity
-        
+                sim = cosine(embeddings[image_files[i]], embeddings[image_files[j]])[0].item()
+                similarity_matrix[i, j] = sim
+                similarity_matrix[j, i] = sim  # Ensure symmetry
+
         return similarity_matrix, image_index
     
 
+
+
+    
     def output_images(self, similar, target):
         self.display_img(target, "original")
 
