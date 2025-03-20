@@ -453,8 +453,8 @@ class Img2Vec:
                     sim = cosine(flat_emb1, flat_emb2).item()
                     max_similarity = max(max_similarity, sim)  # Update max similarity
 
-                max_similarity_matrix[i, j] = max_similarity
-                max_similarity_matrix[j, i] = max_similarity  # Ensure symmetry
+                max_similarity_matrix[i, j] = min(max_similarity, 1.0)
+                max_similarity_matrix[j, i] = min(max_similarity, 1.0)  # Ensure symmetry
 
         return max_similarity_matrix, image_index
 
