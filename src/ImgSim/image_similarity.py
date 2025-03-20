@@ -191,8 +191,59 @@ class Img2Vec:
             self.embed_file(file, comparison_dataset)
 
         return
+    
+    def embed_image_all_layers(self, img):
+        """
+        Embeds an image and returns embeddings from all layers of the model.
 
-    def similar_images(self, target_file, n=None, comparison_dataset=None, show_images=True):
+        Parameters:
+        -----------
+        img: str or Path object specifying the image file to embed.
+
+        Returns:
+        --------
+        layer_outputs: dict containing embeddings for each layer.
+            Keys are layer indices/names, values are the corresponding embeddings.
+        """
+        # Load and preprocess image
+        img = Image.open(img)
+        img_trans = self.transform(img)
+
+        # Store computational graph on GPU if available
+        if self.device == "cuda:0":
+            img_trans = img_trans.cuda()
+
+        # Add batch dimension to the image tensor
+        img_trans = img_trans.unsqueeze(0)
+
+        # Initialize a dictionary to store layer outputs
+        layer_outputs = {}
+
+        # Hook to capture outputs from each layer
+        def hook_fn(name):
+            def hook(module, input, output):
+                layer_outputs[name] = output
+            return hook
+
+        # Temporarily register hooks and run forward pass
+        hooks = []
+        try:
+            for name, layer in self.model.named_modules():
+                hooks.append(layer.register_forward_hook(hook_fn(name)))
+
+            # Perform a forward pass through the model
+            with torch.no_grad():
+                self.model(img_trans)  # Forward pass triggers hooks
+        finally:
+            # Remove hooks to avoid persistence or memory leaks
+            for hook in hooks:
+                hook.remove()
+
+        return layer_outputs
+
+
+    def similar_images(self, target_file, n=None, comparison_dataset=None, show_images=True,
+                       sort_key=lambda i: i[1], sort_reverse=True):
         """
         Function for comparing target image to embedded image dataset
 
@@ -217,9 +268,9 @@ class Img2Vec:
             sim = cosine(v, target_vector)[0].item()
             sim_dict[k] = sim
 
-        # sort based on decreasing similarity
+        # sort based on decreasing similarity (default) or custom sort_key function
         items = sim_dict.items()
-        sim_dict = {k: v for k, v in sorted(items, key=lambda i: i[1], reverse=True)}
+        sim_dict = {k: v for k, v in sorted(items, key=sort_key, reverse=sort_reverse)}
 
         # cut to defined top n similar images
         if n is not None:
@@ -229,6 +280,66 @@ class Img2Vec:
             self.output_images(sim_dict, target_file)
 
         return sim_dict
+    
+
+    def similar_images_from_matrix(self, target_file, sim_matrix, sim_index, n=None, comparison_files=None, show_images=True, 
+                                   sort_key=lambda i: i[1], sort_reverse=True):
+        """
+        Function for comparing target image to embedded image dataset from a precomputed 
+            similarity matrix
+
+        Parameters:
+        -----------
+        target_file: str specifying the path of target image to compare
+            with the saved feature embedding dataset
+        n: int specifying the top n most similar images to return
+        """
+
+        if comparison_files is None:
+            comparison_files = list(self.dataset.keys())
+            
+        # iteratively store similarity of stored images to target image
+        sim_dict = {}
+        for k in comparison_files:
+            sim_dict[k] = sim_matrix[sim_index[target_file], sim_index[k]]
+
+        # sort based on decreasing similarity (default) or custom sort_key function
+        items = sim_dict.items()
+        sim_dict = {k: v for k, v in sorted(items, key=sort_key, reverse=sort_reverse)}
+
+        # cut to defined top n similar images
+        if n is not None:
+            sim_dict = dict(list(sim_dict.items())[: int(n)])
+
+        if show_images:
+            self.output_images(sim_dict, target_file)
+
+        return sim_dict
+    
+
+    def compare_two_images(self, target_file, comparison_file):
+        target_vector = self.embed_image(target_file)
+        comparison_vector = self.embed_image(comparison_file)
+
+        cosine = nn.CosineSimilarity(dim=1)
+
+        sim = cosine(target_vector, comparison_vector)[0].item()
+
+        return sim
+    
+
+    def compute_similarity_matrix(self, image_files):
+        n = len(image_files)
+        similarity_matrix = np.zeros((n, n))
+        image_index = {image_files[i]: i for i in range(n)}
+        
+        for i in range(n):
+            for j in range(i, n):
+                similarity = self.compare_two_images(image_files[i], image_files[j])
+                similarity_matrix[i, j] = similarity
+                similarity_matrix[j, i] = similarity
+        
+        return similarity_matrix, image_index
     
 
     def output_images(self, similar, target):
