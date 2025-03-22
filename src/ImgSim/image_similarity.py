@@ -464,6 +464,117 @@ class Img2Vec:
                 max_similarity_layer_matrix[j, i] = max_similarity_layer
 
         return max_similarity_matrix, image_index, max_similarity_layer_matrix
+      
+    def compute_max_similarity_matrix_all_layers_batched(self, image_files, names=None, batch_size=10):
+      """
+      Computes the similarity matrix with the maximum similarity across all layers,
+      but processes images in batches to conserve memory.
+
+      Parameters:
+      -----------
+      image_files: list of str
+          Paths to the image files to embed.
+      names: list of str, optional
+          Names of the layers for which to return embeddings.
+      batch_size: int, default=10
+          Number of images to process at once.
+
+      Returns:
+      --------
+      max_similarity_matrix: np.ndarray
+          A matrix where entry (i, j) is the maximum similarity across layers
+          between image i and image j.
+      image_index: dict
+          A dictionary mapping image file paths to matrix indices.
+      max_similarity_layer_matrix: np.ndarray of str
+          A matrix recording which layer had the maximum similarity for each pair.
+      """
+      n = len(image_files)
+      max_similarity_matrix = np.zeros((n, n))
+      max_similarity_layer_matrix = np.empty((n, n), dtype=object)
+      image_index = {image_files[i]: i for i in range(n)}
+      
+      # Initialize cosine similarity function
+      cosine = nn.CosineSimilarity(dim=0)
+      
+      # Process in batches for both dimensions of the matrix
+      for i_batch_start in range(0, n, batch_size):
+          i_batch_end = min(i_batch_start + batch_size, n)
+          i_batch_files = image_files[i_batch_start:i_batch_end]
+          
+          # Get embeddings for batch i
+          i_embeddings = {}
+          for img_i in i_batch_files:
+              i_embeddings[img_i] = self.embed_image_all_layers(img_i, names=names)
+          
+          # Extract layer names from the first image
+          layer_names = list(next(iter(i_embeddings.values())).keys())
+          
+          for j_batch_start in range(i_batch_start, n, batch_size):
+              j_batch_end = min(j_batch_start + batch_size, n)
+              j_batch_files = image_files[j_batch_start:j_batch_end]
+              
+              # Only compute embeddings for j if they're not already in i_embeddings
+              j_embeddings = {}
+              for img_j in j_batch_files:
+                  if img_j not in i_embeddings:
+                      j_embeddings[img_j] = self.embed_image_all_layers(img_j, names=names)
+                  else:
+                      j_embeddings[img_j] = i_embeddings[img_j]
+              
+              # Compute similarities for this batch pair
+              for img_i in i_batch_files:
+                  i_idx = image_index[img_i]
+                  for img_j in j_batch_files:
+                      j_idx = image_index[img_j]
+                      
+                      # Skip if we've already computed this pair
+                      if i_idx > j_idx:
+                          continue
+                      
+                      max_similarity = -float("inf")
+                      max_similarity_layer = ""
+                      
+                      # Compare across all layers
+                      for ln in layer_names:
+                          # Flatten embeddings for this layer
+                          flat_emb1 = i_embeddings[img_i][ln].view(-1)
+                          flat_emb2 = j_embeddings[img_j][ln].view(-1)
+                          
+                          # Compute similarity
+                          sim = cosine(flat_emb1, flat_emb2).item()
+                          
+                          # Update if this is the highest similarity so far
+                          if sim > max_similarity:
+                              max_similarity_layer = ln
+                              max_similarity = min(sim, 1.0)
+                      
+                      # Store the results
+                      max_similarity_matrix[i_idx, j_idx] = max_similarity
+                      max_similarity_matrix[j_idx, i_idx] = max_similarity  # Ensure symmetry
+                      max_similarity_layer_matrix[i_idx, j_idx] = max_similarity_layer
+                      max_similarity_layer_matrix[j_idx, i_idx] = max_similarity_layer
+              
+              # Clear j_embeddings to free memory
+              del j_embeddings
+              # Explicitly call garbage collector
+              import gc
+              gc.collect()
+              
+              # If CUDA is being used, empty the cache
+              if self.device.startswith('cuda'):
+                  torch.cuda.empty_cache()
+                  
+          # Clear i_embeddings to free memory
+          del i_embeddings
+          gc.collect()
+          if self.device.startswith('cuda'):
+              torch.cuda.empty_cache()
+          
+          # Print progress
+          print(f"Processed {i_batch_end}/{n} images as reference")
+    
+      return max_similarity_matrix, image_index, max_similarity_layer_matrix
 
 
     def output_images(self, similar, target):
